@@ -452,3 +452,22 @@ $RECYCLE.BIN/
 !.vscode/tasks.json
 !.vscode/launch.json
 !.vscode/extensions.json
+
+# PortFlow build and publish artifacts
+**/bin/
+**/obj/
+**/publish/
+*.exe
+*.dll
+*.pdb
+*.deps.json
+*.runtimeconfig.json
+shipping/**/PortFlow.Runner.exe
+shipping/**/PortFlow.Runner.dll
+shipping/**/PortFlow.Runner*.json
+
+# Keep shipping scripts and config templates tracked
+!shipping/PortFlowBackup/install-task.ps1
+!shipping/PortFlowBackup/install.cmd
+!shipping/PortFlowBackup/uninstall.cmd
+!shipping/PortFlowBackup/portflow.backup.json

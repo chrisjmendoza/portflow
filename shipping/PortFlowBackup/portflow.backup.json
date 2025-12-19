@@ -1,0 +1,11 @@
+{
+  "sourcePath": "C:\\Temp\\BackupSource",
+  "destinationFolderName": "Backup",
+  "mirror": true,
+  "exclude": [
+    "*.tmp",
+    "Thumbs.db"
+  ],
+  "logPath": "C:\\ProgramData\\PortFlow\\logs\\backup.log",
+  "stayRunning": false
+}
