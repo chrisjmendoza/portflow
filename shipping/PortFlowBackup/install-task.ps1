@@ -1,27 +1,35 @@
-# PortFlow USB Backup - Scheduled Task Installer
+# PortFlowBackup - Scheduled Task Installer (internal helper)
 # Must be run as Administrator
+
+param(
+    [Parameter(Mandatory = $false)]
+    [string]$InstallDir = "C:\ProgramData\PortFlowBackup",
+
+    [Parameter(Mandatory = $false)]
+    [string]$UserId = "$env:USERDOMAIN\$env:USERNAME"
+)
 
 $ErrorActionPreference = "Stop"
 
-$baseDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$exePath = Join-Path $baseDir "PortFlow.Runner.exe"
-$configPath = Join-Path $baseDir "portflow.backup.json"
+$exePath = Join-Path $InstallDir "PortFlow.Runner.exe"
+ $configPath = Join-Path $InstallDir "portflow.backup.json"
 
-if (!(Test-Path $exePath)) {
-    throw "PortFlow.Runner.exe not found in $baseDir"
+if (!(Test-Path -LiteralPath $exePath)) {
+    throw "PortFlow.Runner.exe not found at $exePath"
 }
 
-if (!(Test-Path $configPath)) {
-    throw "portflow.backup.json not found in $baseDir"
+if (!(Test-Path -LiteralPath $configPath)) {
+    throw "portflow.backup.json not found at $configPath"
 }
 
-$taskName = "PortFlow USB Backup"
+$taskName = "PortFlowBackup"
 
 $action = New-ScheduledTaskAction `
     -Execute $exePath `
-    -Argument "--config `"$configPath`""
+    -Argument "--config `"$configPath`"" `
+    -WorkingDirectory $InstallDir
 
-$trigger = New-ScheduledTaskTrigger -AtLogOn
+$trigger = New-ScheduledTaskTrigger -AtLogOn -User $UserId
 
 $settings = New-ScheduledTaskSettingsSet `
     -AllowStartIfOnBatteries `
@@ -30,22 +38,12 @@ $settings = New-ScheduledTaskSettingsSet `
     -RestartCount 3 `
     -RestartInterval (New-TimeSpan -Minutes 1)
 
-# Run in user context (no password prompt)
+# Run only when the user is logged on (interactive context for user-profile paths)
 $principal = New-ScheduledTaskPrincipal `
-    -UserId "$env:USERNAME" `
-    -LogonType Interactive `
+    -UserId $UserId `
+    -LogonType InteractiveToken `
     -RunLevel Highest
 
-# Remove existing task if present
-if (Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue) {
-    Unregister-ScheduledTask -TaskName $taskName -Confirm:$false
-}
+$task = New-ScheduledTask -Action $action -Trigger $trigger -Settings $settings -Principal $principal
 
-Register-ScheduledTask `
-    -TaskName $taskName `
-    -Action $action `
-    -Trigger $trigger `
-    -Settings $settings `
-    -Principal $principal
-
-Write-Host "PortFlow USB Backup installed successfully."
+Register-ScheduledTask -TaskName $taskName -InputObject $task -Force | Out-Null

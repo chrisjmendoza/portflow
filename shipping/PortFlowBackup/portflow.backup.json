@@ -6,6 +6,6 @@
     "*.tmp",
     "Thumbs.db"
   ],
-  "logPath": "C:\\ProgramData\\PortFlow\\logs\\backup.log",
-  "stayRunning": false
+  "logPath": "C:\\ProgramData\\PortFlowBackup\\logs\\portflow.log",
+  "stayRunning": true
 }

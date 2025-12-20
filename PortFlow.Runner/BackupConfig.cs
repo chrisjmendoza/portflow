@@ -11,7 +11,7 @@ public sealed class BackupConfig
     public string DestinationFolderName { get; set; } = "Backup";
     public bool Mirror { get; set; } = true;
     public List<string> Exclude { get; set; } = new();
-    public string LogPath { get; set; } = @"C:\ProgramData\PortFlow\logs\backup.log";
+    public string LogPath { get; set; } = @"C:\ProgramData\PortFlowBackup\logs\portflow.log";
     public bool StayRunning { get; set; } = true;
 
     public static BackupConfig Load(string path)
