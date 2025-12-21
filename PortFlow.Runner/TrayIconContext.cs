@@ -8,6 +8,7 @@ namespace PortFlow.Runner;
 
 internal sealed class TrayIconContext : ApplicationContext
 {
+	private readonly Icon _icon;
 	private readonly NotifyIcon _notifyIcon;
 	private readonly Action _onExitRequested;
 	private readonly Action<string> _log;
@@ -20,6 +21,17 @@ internal sealed class TrayIconContext : ApplicationContext
 		_log = log;
 		_logFilePath = logFilePath;
 		_logsFolderPath = ResolveLogsFolder(logFilePath);
+
+		try
+		{
+			var iconPath = Path.Combine(AppContext.BaseDirectory, "portflow.ico");
+			_icon = new Icon(iconPath);
+		}
+		catch (Exception ex)
+		{
+			_log($"Failed to load tray icon (portflow.ico): {ex.Message}");
+			throw;
+		}
 
 		var contextMenu = new ContextMenuStrip();
 		var openLogsFolderItem = new ToolStripMenuItem("Open Logs Folder");
@@ -84,9 +96,9 @@ internal sealed class TrayIconContext : ApplicationContext
 
 		_notifyIcon = new NotifyIcon
 		{
-			Icon = SystemIcons.Application,
+			Icon = _icon,
 			ContextMenuStrip = contextMenu,
-			Text = NormalizeTooltip(toolTipText),
+			Text = NormalizeTooltip("PortFlow Backup"),
 			Visible = true
 		};
 	}
@@ -95,6 +107,7 @@ internal sealed class TrayIconContext : ApplicationContext
 	{
 		_notifyIcon.Visible = false;
 		_notifyIcon.Dispose();
+		_icon.Dispose();
 		base.ExitThreadCore();
 	}
 

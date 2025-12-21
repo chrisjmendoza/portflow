@@ -12,8 +12,17 @@
     <OutputType>Exe</OutputType>
     <TargetFramework>net8.0-windows</TargetFramework>
     <UseWindowsForms>true</UseWindowsForms>
+    <UseAppHost>true</UseAppHost>
+    <ApplicationIcon>Assets\portflow.ico</ApplicationIcon>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
   </PropertyGroup>
+
+  <ItemGroup>
+    <Content Include="Assets\portflow.ico">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+      <TargetPath>portflow.ico</TargetPath>
+    </Content>
+  </ItemGroup>
 
 </Project>
