@@ -13,6 +13,20 @@ using PortFlow.Runner.Usb;
 
 namespace PortFlow.Runner;
 
+/// <summary>
+/// Entry point for the PortFlow headless backup runner.
+/// </summary>
+/// <remarks>
+/// Modes:
+/// - Run-once: selects a target drive (explicit or sentinel discovery) and executes a backup.
+/// - Watcher: stays running, listens for WMI volume arrival/removal events, and executes a backup when exactly one
+///   sentinel drive is present.
+///
+/// Performance constraints (by design):
+/// - WMI event handlers enqueue work and return immediately.
+/// - Drive evaluation in watcher mode is scoped to the event drive only.
+/// - Logging is buffered to avoid disk thrash.
+/// </remarks>
 internal static class Program
 {
 	private enum VolumeEventKind

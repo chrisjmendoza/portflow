@@ -8,8 +8,28 @@ using System.Threading.Tasks;
 
 namespace PortFlow.Runner.Steps;
 
+/// <summary>
+/// Backup step implementation that shells out to <c>robocopy.exe</c>.
+/// </summary>
+/// <remarks>
+/// Logging is intentionally throttled by default to avoid excessive disk I/O.
+/// Set <see cref="BackupConfig.VerboseRobocopyLog"/> to enable more verbose output.
+/// </remarks>
 public sealed class RobocopyBackupStep
 {
+    /// <summary>
+    /// Executes a backup from <see cref="BackupConfig.SourcePath"/> to the specified USB drive root.
+    /// </summary>
+    /// <param name="usbRoot">Drive root (e.g. <c>E:\</c>) that will receive the backup.</param>
+    /// <param name="cfg">Backup configuration.</param>
+    /// <param name="log">Log sink.</param>
+    /// <param name="ct">Cancellation token used to stop the robocopy process.</param>
+    /// <returns>
+    /// 0 on success; 1 on failure. (Robocopy exit codes &gt;= 8 are treated as failures.)
+    /// </returns>
+    /// <exception cref="ArgumentException">usbRoot is null/empty.</exception>
+    /// <exception cref="ArgumentNullException">cfg or log are null.</exception>
+    /// <exception cref="DirectoryNotFoundException">SourcePath does not exist.</exception>
     public async Task<int> RunAsync(string usbRoot, BackupConfig cfg, Action<string> log, CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(usbRoot)) throw new ArgumentException("USB root is required.", nameof(usbRoot));

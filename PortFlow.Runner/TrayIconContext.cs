@@ -6,6 +6,13 @@ using System.Windows.Forms;
 
 namespace PortFlow.Runner;
 
+/// <summary>
+/// WinForms <see cref="ApplicationContext"/> that hosts the system tray icon and menu for the headless runner.
+/// </summary>
+/// <remarks>
+/// The tray context is responsible for exposing basic UX for a background process:
+/// open logs, open log file, and request graceful shutdown.
+/// </remarks>
 internal sealed class TrayIconContext : ApplicationContext
 {
 	private readonly Icon _icon;
@@ -15,6 +22,13 @@ internal sealed class TrayIconContext : ApplicationContext
 	private readonly string _logFilePath;
 	private readonly string _logsFolderPath;
 
+	/// <summary>
+	/// Creates the tray icon and context menu.
+	/// </summary>
+	/// <param name="toolTipText">Tooltip text (will be truncated to Windows limits).</param>
+	/// <param name="logFilePath">Path to the runner log file.</param>
+	/// <param name="log">Log sink for tray-related actions.</param>
+	/// <param name="onExitRequested">Callback invoked when the user selects Exit.</param>
 	public TrayIconContext(string toolTipText, string logFilePath, Action<string> log, Action onExitRequested)
 	{
 		_onExitRequested = onExitRequested;

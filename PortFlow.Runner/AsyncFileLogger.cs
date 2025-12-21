@@ -7,6 +7,15 @@ using System.Threading.Tasks;
 
 namespace PortFlow.Runner;
 
+/// <summary>
+/// Buffered, asynchronous logger that writes log lines to a file from a single background writer.
+/// </summary>
+/// <remarks>
+/// Designed for headless/background operation:
+/// - Avoids per-line <see cref="File.AppendAllText(string,string)"/> calls.
+/// - Applies bounded backpressure (drops oldest lines when saturated).
+/// - Never throws to callers; logging must not crash the runner.
+/// </remarks>
 internal sealed class AsyncFileLogger : IAsyncDisposable
 {
 	private readonly Channel<string> _channel;
@@ -43,9 +52,21 @@ internal sealed class AsyncFileLogger : IAsyncDisposable
 		_writerTask = Task.Run(() => WriterLoopAsync(absolutePath, _cts.Token));
 	}
 
+	/// <summary>
+	/// Creates a new logger instance and starts the writer task.
+	/// </summary>
+	/// <param name="logPath">Path to the log file (created/appended as needed).</param>
+	/// <param name="writeToConsole">Whether to also echo lines to stdout.</param>
 	public static AsyncFileLogger Create(string logPath, bool writeToConsole)
 		=> new(logPath, writeToConsole, bufferCapacity: 4096, flushEveryLines: 50, flushInterval: TimeSpan.FromMilliseconds(400));
 
+	/// <summary>
+	/// Enqueues a message for logging.
+	/// </summary>
+	/// <remarks>
+	/// This method is non-blocking. If the internal buffer is full, the oldest queued log line is dropped.
+	/// </remarks>
+	/// <param name="message">The message to log. Empty/whitespace messages are ignored.</param>
 	public void Log(string message)
 	{
 		if (string.IsNullOrWhiteSpace(message)) return;
@@ -131,6 +152,9 @@ internal sealed class AsyncFileLogger : IAsyncDisposable
 		}
 	}
 
+	/// <summary>
+	/// Stops the writer task and flushes any remaining buffered log lines (best-effort).
+	/// </summary>
 	public async ValueTask DisposeAsync()
 	{
 		if (Interlocked.Exchange(ref _disposed, 1) != 0) return;
