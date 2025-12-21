@@ -26,7 +26,7 @@ $taskName = "PortFlowBackup"
 
 $action = New-ScheduledTaskAction `
     -Execute $exePath `
-    -Argument "--config `"$configPath`"" `
+    -Argument "--config `"$configPath`" --tray" `
     -WorkingDirectory $InstallDir
 
 $trigger = New-ScheduledTaskTrigger -AtLogOn -User $UserId

@@ -4,7 +4,8 @@ PortFlow USB Backup — Setup Instructions
 PortFlow automatically backs up a chosen folder on your computer to a specific
 USB drive (USB stick, SD reader, SSD, or external hard drive).
 
-Once installed, it runs silently in the background.
+After you sign in, PortFlow runs in the system tray (near the clock).
+You can right-click the tray icon to open logs or exit.
 You only need to complete this setup one time.
 
 
@@ -200,7 +201,7 @@ No window will appear during normal operation.
 
 HOW IT WORKS
 ------------
-• PortFlow runs silently after you sign in to Windows.
+• After you sign in, PortFlow runs in the system tray (near the clock).
 • After you sign in, it automatically runs a backup whenever you plug in the correct USB drive.
 • If the USB is not plugged in, nothing happens.
 • If the wrong USB is plugged in, it is ignored.

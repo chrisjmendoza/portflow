@@ -3,7 +3,7 @@ PortFlow USB Backup — Troubleshooting
 
 BACKUP DID NOT RUN
 ------------------
-• Make sure you are signed in to Windows (PortFlow starts after login)
+• Make sure you are signed in to Windows (PortFlow starts after login and runs in the system tray)
 • Make sure the USB drive is plugged in
 • Make sure PORTFLOW_TARGET.txt is on the USB drive root (for example: E:\PORTFLOW_TARGET.txt)
 • Try unplugging and re-plugging the USB drive
@@ -19,6 +19,8 @@ CHECK THE LOGS
 --------------
 Log files are located at:
 C:\ProgramData\PortFlowBackup\logs\
+
+You can also right-click the PortFlow tray icon to open logs.
 
 Open the most recent log file with Notepad to see details.
 
