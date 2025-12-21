@@ -6,6 +6,7 @@ rem Installs into C:\ProgramData\PortFlowBackup and registers scheduled task.
 
 set "INSTALLDIR=C:\ProgramData\PortFlowBackup"
 set "LOGDIR=%INSTALLDIR%\logs"
+set "INSTALLLOG=%LOGDIR%\install.log"
 set "SRCDIR=%~dp0"
 set "PF_USER=%USERDOMAIN%\%USERNAME%"
 
@@ -39,18 +40,31 @@ if not "%errorlevel%"=="0" (
 )
 
 set "RC=0"
+set "FAIL_REASON="
 
 if not exist "%INSTALLDIR%" mkdir "%INSTALLDIR%" >nul 2>&1
 if not exist "%LOGDIR%" mkdir "%LOGDIR%" >nul 2>&1
 
+(
+  echo.
+  echo =======================
+  echo %date% %time% Install started
+  echo InstallDir: %INSTALLDIR%
+  echo SourceDir : %SRCDIR%
+  echo UserId    : %PF_USER%
+  echo =======================
+)>>"%INSTALLLOG%" 2>nul
+
 rem Copy binaries/templates (overwrite)
 if not exist "%SRCDIR%PortFlow.Runner.exe" (
   set "RC=1"
+  set "FAIL_REASON=PortFlow.Runner.exe not found in source folder"
   goto done
 )
 copy /y "%SRCDIR%PortFlow.Runner.exe" "%INSTALLDIR%\PortFlow.Runner.exe" >nul
 if not "%errorlevel%"=="0" (
   set "RC=1"
+  set "FAIL_REASON=Failed to copy PortFlow.Runner.exe"
   goto done
 )
 
@@ -69,28 +83,39 @@ rem Preserve user-editable config across reinstalls
 if not exist "%INSTALLDIR%\portflow.backup.json" (
   if not exist "%SRCDIR%portflow.backup.json" (
     set "RC=1"
+    set "FAIL_REASON=portflow.backup.json not found in source folder"
     goto done
   )
   copy "%SRCDIR%portflow.backup.json" "%INSTALLDIR%\portflow.backup.json" >nul
   if not "%errorlevel%"=="0" (
     set "RC=1"
+    set "FAIL_REASON=Failed to copy portflow.backup.json"
     goto done
   )
 )
 
 rem Register / replace scheduled task
-powershell -NoProfile -ExecutionPolicy Bypass -File "%SRCDIR%install-task.ps1" -InstallDir "%INSTALLDIR%" -UserId "%PF_USER%" >nul 2>&1
+powershell -NoProfile -ExecutionPolicy Bypass -File "%SRCDIR%install-task.ps1" -InstallDir "%INSTALLDIR%" -UserId "%PF_USER%" >>"%INSTALLLOG%" 2>&1
 if not "%errorlevel%"=="0" (
   set "RC=1"
+  set "FAIL_REASON=Scheduled task registration failed (see install.log)"
   goto done
 )
 
-rem Optional install log (best-effort)
 (
-  echo %date% %time% Installed PortFlowBackup to %INSTALLDIR%
-)>>"%LOGDIR%\install.log" 2>nul
+  echo %date% %time% Scheduled task registered successfully.
+)>>"%INSTALLLOG%" 2>nul
 
 :done
+(
+  if "%RC%"=="0" (
+    echo %date% %time% Install result: SUCCESS
+  ) else (
+    echo %date% %time% Install result: FAILURE
+    if not "%FAIL_REASON%"=="" echo Reason: %FAIL_REASON%
+  )
+)>>"%INSTALLLOG%" 2>nul
+
 echo.
 echo PortFlowBackup Installer
 echo =======================
@@ -102,9 +127,10 @@ if "%RC%"=="0" (
 ) else (
   echo INSTALL FAILED.
   echo Please re-run install.cmd as Administrator.
+  if not "%FAIL_REASON%"=="" echo Reason: %FAIL_REASON%
   echo.
   echo If this keeps failing, check:
-  echo   %LOGDIR%\install.log
+  echo   %INSTALLLOG%
 )
 echo.
 pause

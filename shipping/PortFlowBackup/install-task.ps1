@@ -12,7 +12,7 @@ param(
 $ErrorActionPreference = "Stop"
 
 $exePath = Join-Path $InstallDir "PortFlow.Runner.exe"
- $configPath = Join-Path $InstallDir "portflow.backup.json"
+$configPath = Join-Path $InstallDir "portflow.backup.json"
 
 if (!(Test-Path -LiteralPath $exePath)) {
     throw "PortFlow.Runner.exe not found at $exePath"
@@ -41,7 +41,7 @@ $settings = New-ScheduledTaskSettingsSet `
 # Run only when the user is logged on (interactive context for user-profile paths)
 $principal = New-ScheduledTaskPrincipal `
     -UserId $UserId `
-    -LogonType InteractiveToken `
+    -LogonType Interactive `
     -RunLevel Highest
 
 $task = New-ScheduledTask -Action $action -Trigger $trigger -Settings $settings -Principal $principal
