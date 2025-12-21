@@ -13,6 +13,7 @@ public sealed class BackupConfig
     public List<string> Exclude { get; set; } = new();
     public string LogPath { get; set; } = @"C:\ProgramData\PortFlowBackup\logs\portflow.log";
     public bool StayRunning { get; set; } = true;
+    public bool VerboseRobocopyLog { get; set; } = false;
 
     public static BackupConfig Load(string path)
     {

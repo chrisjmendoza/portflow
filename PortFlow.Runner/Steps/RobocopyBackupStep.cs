@@ -43,12 +43,69 @@ public sealed class RobocopyBackupStep
         };
 
         var completionSource = new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var verbose = cfg.VerboseRobocopyLog;
+        var summaryBuffer = new Queue<string>(capacity: 64);
+        var rateWindowStart = DateTimeOffset.UtcNow;
+        var rateCount = 0;
+        const int MaxVerboseLinesPerSecond = 5;
+
+        static bool IsImportantLine(string line)
+            => line.IndexOf("ERROR", StringComparison.OrdinalIgnoreCase) >= 0 ||
+               line.IndexOf("FAILED", StringComparison.OrdinalIgnoreCase) >= 0 ||
+               line.IndexOf("WARNING", StringComparison.OrdinalIgnoreCase) >= 0;
+
+        void AddSummaryLine(string line)
+        {
+            if (summaryBuffer.Count >= 30)
+            {
+                summaryBuffer.Dequeue();
+            }
+            summaryBuffer.Enqueue(line);
+        }
+
+        bool ShouldLogVerboseNow()
+        {
+            var now = DateTimeOffset.UtcNow;
+            if (now - rateWindowStart >= TimeSpan.FromSeconds(1))
+            {
+                rateWindowStart = now;
+                rateCount = 0;
+            }
+
+            if (rateCount >= MaxVerboseLinesPerSecond)
+            {
+                return false;
+            }
+
+            rateCount++;
+            return true;
+        }
 
         process.OutputDataReceived += (_, e) =>
         {
             if (!string.IsNullOrEmpty(e.Data))
             {
-                log(e.Data);
+                var line = e.Data;
+                if (IsImportantLine(line))
+                {
+                    log(line);
+                    return;
+                }
+
+                if (!verbose)
+                {
+                    AddSummaryLine(line);
+                    return;
+                }
+
+                if (ShouldLogVerboseNow())
+                {
+                    log(line);
+                }
+                else
+                {
+                    AddSummaryLine(line);
+                }
             }
         };
 
@@ -56,7 +113,15 @@ public sealed class RobocopyBackupStep
         {
             if (!string.IsNullOrEmpty(e.Data))
             {
-                log(e.Data);
+                var line = e.Data;
+                if (IsImportantLine(line) || verbose)
+                {
+                    log(line);
+                }
+                else
+                {
+                    AddSummaryLine(line);
+                }
             }
         };
 
@@ -113,10 +178,26 @@ public sealed class RobocopyBackupStep
         if (exitCode >= 8)
         {
             log($"Robocopy reported failure with exit code {exitCode}.");
+            if (summaryBuffer.Count > 0)
+            {
+                log("Robocopy output (tail):");
+                foreach (var line in summaryBuffer.TakeLast(15))
+                {
+                    log(line);
+                }
+            }
             return 1;
         }
 
         log($"Robocopy completed with exit code {exitCode}.");
+        if (!verbose && summaryBuffer.Count > 0)
+        {
+            log("Robocopy output (tail):");
+            foreach (var line in summaryBuffer.TakeLast(15))
+            {
+                log(line);
+            }
+        }
         return 0;
     }
 

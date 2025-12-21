@@ -5,6 +5,7 @@ using System.Management;
 using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
 using System.Threading;
+using System.Threading.Channels;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 using PortFlow.Runner.Steps;
@@ -14,6 +15,14 @@ namespace PortFlow.Runner;
 
 internal static class Program
 {
+	private enum VolumeEventKind
+	{
+		Arrival,
+		Removal
+	}
+
+	private readonly record struct VolumeEvent(VolumeEventKind Kind, string DriveRoot);
+
 	private sealed record RunnerOptions(string ConfigPath, string? UsbRoot, bool RunOnce, bool Silent, bool Tray);
 	private const string MarkerFileName = "PORTFLOW_TARGET.txt";
 
@@ -66,7 +75,8 @@ internal static class Program
 			return 1;
 		}
 
-		var log = CreateLogger(cfg.LogPath, writeToConsole: !(options.Silent || options.Tray));
+		await using var logger = AsyncFileLogger.Create(cfg.LogPath, writeToConsole: !(options.Silent || options.Tray));
+		Action<string> log = logger.Log;
 		log("Configuration loaded.");
 
 		if (options.Tray)
@@ -137,14 +147,28 @@ internal static class Program
 	{
 		Console.CancelKeyPress += (_, eventArgs) =>
 		{
-			log("Cancellation requested. Attempting graceful shutdown.");
-			eventArgs.Cancel = true;
-			cts.Cancel();
+			try
+			{
+				log("Cancellation requested. Attempting graceful shutdown.");
+				eventArgs.Cancel = true;
+				cts.Cancel();
+			}
+			catch
+			{
+				// ignored
+			}
 		};
 		AppDomain.CurrentDomain.ProcessExit += (_, _) =>
 		{
 			// Best-effort: ensure we stop watchers/loops cleanly.
-			cts.Cancel();
+			try
+			{
+				cts.Cancel();
+			}
+			catch
+			{
+				// ignored
+			}
 		};
 	}
 
@@ -214,85 +238,58 @@ internal static class Program
 	{
 		log("Watcher started (stayRunning=true). Waiting for USB insertion...");
 
-		// Protect against duplicated Windows events and ensure only one backup runs at a time.
-		var debounceWindow = TimeSpan.FromSeconds(4);
-		var debounceSync = new object();
-		var lastAcceptedTrigger = DateTimeOffset.MinValue;
-		using var oneBackupAtATime = new SemaphoreSlim(1, 1);
+		var volumeEvents = Channel.CreateBounded<VolumeEvent>(new BoundedChannelOptions(capacity: 256)
+		{
+			SingleReader = true,
+			SingleWriter = false,
+			FullMode = BoundedChannelFullMode.DropOldest
+		});
 
-		// WMI query: volume arrival
-		var query = new WqlEventQuery("SELECT * FROM Win32_VolumeChangeEvent WHERE EventType = 2");
+		using var oneBackupAtATime = new SemaphoreSlim(1, 1);
+		var workerTask = Task.Run(
+			() => ProcessVolumeEventsAsync(options, cfg, step, log, volumeEvents.Reader, oneBackupAtATime, ct),
+			ct
+		);
+
+		// WMI query: volume arrival + removal (EventType: 2=arrival, 3=removal)
+		var query = new WqlEventQuery("SELECT * FROM Win32_VolumeChangeEvent WHERE EventType = 2 OR EventType = 3");
 		using var watcher = new ManagementEventWatcher(query);
 
-		watcher.EventArrived += (_, _) =>
+		watcher.EventArrived += (_, e) =>
 		{
-			var now = DateTimeOffset.Now;
-			lock (debounceSync)
+			try
 			{
-				if (now - lastAcceptedTrigger < debounceWindow)
-				{
-					return;
-				}
-				lastAcceptedTrigger = now;
-			}
+				var newEvent = e.NewEvent;
+				var driveName = newEvent?.Properties["DriveName"]?.Value as string;
+				var eventTypeObj = newEvent?.Properties["EventType"]?.Value;
 
-			// Never block the WMI event thread; run backup work in the background.
-			_ = Task.Run(async () =>
-			{
-				if (!await oneBackupAtATime.WaitAsync(0, ct).ConfigureAwait(false))
-				{
-					log("Backup already running; ignoring trigger.");
-					return;
-				}
+				if (string.IsNullOrWhiteSpace(driveName)) return;
+				if (!TryNormalizeDriveRoot(driveName, out var driveRoot)) return;
 
+				int eventType;
 				try
 				{
-					log("Volume arrival detected; scanning for sentinel...");
-					var resolveResult = UsbTargetResolver.ResolveUsbRoot(
-						explicitUsbRoot: options.UsbRoot,
-						markerFileName: MarkerFileName,
-						log: log
-					);
-
-					if (!resolveResult.Success || string.IsNullOrWhiteSpace(resolveResult.UsbRoot))
-					{
-						// Keep logs informative but not spammy: only log on events.
-						if (resolveResult.ExitCode == 3)
-						{
-							log("Multiple target drives detected; skipping backup.");
-						}
-						else
-						{
-							log("No target drive detected; skipping.");
-						}
-						return;
-					}
-
-					var usbRoot = resolveResult.UsbRoot;
-					log($"Target drive detected at {usbRoot}; starting backup...");
-
-					var runResult = await step.RunAsync(usbRoot, cfg, log, ct).ConfigureAwait(false);
-					if (runResult != 0)
-					{
-						log("Backup step reported failure.");
-						return;
-					}
-
-					log("Backup completed successfully.");
+					eventType = eventTypeObj is null ? 0 : Convert.ToInt32(eventTypeObj);
 				}
-				catch (OperationCanceledException)
+				catch
 				{
-					log("Backup canceled.");
+					return;
 				}
-				catch (Exception ex)
+
+				var kind = eventType switch
 				{
-					log($"Unexpected error while handling volume arrival: {ex}");
-				}
-				finally
-				{
-					oneBackupAtATime.Release();
-				}
-			}, CancellationToken.None);
+					2 => VolumeEventKind.Arrival,
+					3 => VolumeEventKind.Removal,
+					_ => (VolumeEventKind?)null
+				};
+
+				if (kind is null) return;
+				_ = volumeEvents.Writer.TryWrite(new VolumeEvent(kind.Value, driveRoot));
+			}
+			catch
+			{
+				// ignored: never crash WMI event thread
+			}
 		};
 
 		try
@@ -308,7 +305,25 @@ internal static class Program
 		{
 			try
 			{
+				volumeEvents.Writer.TryComplete();
+			}
+			catch
+			{
+				// ignored
+			}
+
+			try
+			{
 				watcher.Stop();
+			}
+			catch
+			{
+				// ignored
+			}
+
+			try
+			{
+				await workerTask.ConfigureAwait(false);
 			}
 			catch
 			{
@@ -317,6 +332,248 @@ internal static class Program
 		}
 
 		return 0;
+	}
+
+	private static async Task ProcessVolumeEventsAsync(
+		RunnerOptions options,
+		BackupConfig cfg,
+		RobocopyBackupStep step,
+		Action<string> log,
+		ChannelReader<VolumeEvent> reader,
+		SemaphoreSlim oneBackupAtATime,
+		CancellationToken ct)
+	{
+		var sentinelDrives = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+		var lastArrivalByDrive = new Dictionary<string, DateTimeOffset>(StringComparer.OrdinalIgnoreCase);
+		var inFlightSentinelChecks = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+		var warnedSentinelCheck = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+		var explicitRoot = string.IsNullOrWhiteSpace(options.UsbRoot) ? null : NormalizeExplicitUsbRoot(options.UsbRoot);
+		var debounceWindow = TimeSpan.FromSeconds(8);
+		var conflictActive = false;
+
+		await foreach (var ev in reader.ReadAllAsync(ct).ConfigureAwait(false))
+		{
+			if (ct.IsCancellationRequested) break;
+
+			var driveRoot = ev.DriveRoot;
+			if (explicitRoot is not null && !string.Equals(driveRoot, explicitRoot, StringComparison.OrdinalIgnoreCase))
+			{
+				continue;
+			}
+
+			switch (ev.Kind)
+			{
+				case VolumeEventKind.Removal:
+				{
+					var removed = sentinelDrives.Remove(driveRoot);
+					_ = lastArrivalByDrive.Remove(driveRoot);
+					_ = inFlightSentinelChecks.Remove(driveRoot);
+					if (removed)
+					{
+						log($"Volume removed: {driveRoot}");
+					}
+					break;
+				}
+
+				case VolumeEventKind.Arrival:
+				{
+					var now = DateTimeOffset.UtcNow;
+					if (lastArrivalByDrive.TryGetValue(driveRoot, out var last) && now - last < debounceWindow)
+					{
+						break;
+					}
+					lastArrivalByDrive[driveRoot] = now;
+
+					var hasSentinel = false;
+					if (explicitRoot is not null)
+					{
+						hasSentinel = true;
+					}
+					else
+					{
+						if (inFlightSentinelChecks.Contains(driveRoot))
+						{
+							break;
+						}
+
+						inFlightSentinelChecks.Add(driveRoot);
+						try
+						{
+							hasSentinel = await HasSentinelAsync(driveRoot, MarkerFileName, log, warnedSentinelCheck, ct)
+								.ConfigureAwait(false);
+						}
+						finally
+						{
+							inFlightSentinelChecks.Remove(driveRoot);
+						}
+					}
+
+					if (hasSentinel)
+					{
+						var added = sentinelDrives.Add(driveRoot);
+						if (added && explicitRoot is null)
+						{
+							log($"Sentinel detected on {driveRoot}.");
+						}
+					}
+
+					if (sentinelDrives.Count > 1)
+					{
+						if (!conflictActive)
+						{
+							conflictActive = true;
+							log($"Conflict: multiple sentinel drives detected ({string.Join(", ", sentinelDrives)}). Refusing to run backup.");
+						}
+						break;
+					}
+
+					if (conflictActive && sentinelDrives.Count <= 1)
+					{
+						conflictActive = false;
+					}
+
+					if (sentinelDrives.Count == 1 && sentinelDrives.Contains(driveRoot))
+					{
+						if (!await oneBackupAtATime.WaitAsync(0, ct).ConfigureAwait(false))
+						{
+							log("Backup already running; ignoring trigger.");
+							break;
+						}
+
+						try
+						{
+							log($"Target drive ready at {driveRoot}; starting backup...");
+							var runResult = await step.RunAsync(driveRoot, cfg, log, ct).ConfigureAwait(false);
+							if (runResult != 0)
+							{
+								log("Backup step reported failure.");
+							}
+							else
+							{
+								log("Backup completed successfully.");
+							}
+						}
+						catch (OperationCanceledException)
+						{
+							log("Backup canceled.");
+						}
+						catch (Exception ex)
+						{
+							log($"Unexpected error while running backup: {ex}");
+						}
+						finally
+						{
+							oneBackupAtATime.Release();
+						}
+					}
+
+					break;
+				}
+			}
+		}
+	}
+
+	private static async Task<bool> HasSentinelAsync(
+		string driveRoot,
+		string markerFileName,
+		Action<string> log,
+		HashSet<string> warnedSentinelCheck,
+		CancellationToken ct)
+	{
+		if (!IsValidLocalDriveRoot(driveRoot))
+		{
+			return false;
+		}
+
+		var markerPath = Path.Combine(driveRoot, markerFileName);
+		try
+		{
+			var existsTask = Task.Run(() =>
+			{
+				try
+				{
+					var drive = new DriveInfo(driveRoot);
+					if (drive.DriveType == DriveType.Network || drive.DriveType == DriveType.NoRootDirectory)
+						return false;
+
+					if (!drive.IsReady)
+						return false;
+
+					return File.Exists(markerPath);
+				}
+				catch
+				{
+					return false;
+				}
+			}, ct);
+
+			return await existsTask.WaitAsync(TimeSpan.FromSeconds(2), ct).ConfigureAwait(false);
+		}
+		catch (TimeoutException)
+		{
+			if (warnedSentinelCheck.Add(driveRoot))
+			{
+				log($"Sentinel check timed out for {driveRoot}; treating as no sentinel.");
+			}
+			return false;
+		}
+		catch (OperationCanceledException)
+		{
+			throw;
+		}
+		catch (Exception ex)
+		{
+			if (warnedSentinelCheck.Add(driveRoot))
+			{
+				log($"Sentinel check failed for {driveRoot}: {ex.Message}");
+			}
+			return false;
+		}
+	}
+
+	private static bool TryNormalizeDriveRoot(string driveName, out string driveRoot)
+	{
+		driveRoot = string.Empty;
+		if (string.IsNullOrWhiteSpace(driveName)) return false;
+
+		var trimmed = driveName.Trim();
+		if (trimmed.StartsWith("\\\\", StringComparison.Ordinal)) return false;
+
+		if (trimmed.Length == 2 && trimmed[1] == ':')
+		{
+			trimmed += "\\";
+		}
+
+		if (!IsValidLocalDriveRoot(trimmed)) return false;
+		driveRoot = $"{char.ToUpperInvariant(trimmed[0])}:\\";
+		return true;
+	}
+
+	private static bool IsValidLocalDriveRoot(string value)
+	{
+		if (string.IsNullOrWhiteSpace(value)) return false;
+		if (value.Length != 3) return false;
+		if (!char.IsLetter(value[0])) return false;
+		if (value[1] != ':') return false;
+		if (value[2] != '\\') return false;
+		return true;
+	}
+
+	private static string NormalizeExplicitUsbRoot(string path)
+	{
+		var trimmed = path.Trim();
+		if (trimmed.Length == 2 && trimmed[1] == ':')
+		{
+			trimmed += "\\";
+		}
+
+		if (IsValidLocalDriveRoot(trimmed))
+		{
+			return $"{char.ToUpperInvariant(trimmed[0])}:\\";
+		}
+
+		return Path.GetFullPath(trimmed);
 	}
 
 	private static RunnerOptions ParseArguments(IReadOnlyList<string> args)
@@ -360,30 +617,6 @@ internal static class Program
 		}
 
 		return new RunnerOptions(configPath, usbRoot, runOnce, silent, tray);
-	}
-
-	private static Action<string> CreateLogger(string logPath, bool writeToConsole)
-	{
-		var absolutePath = Path.GetFullPath(logPath);
-		var sync = new object();
-		var directory = Path.GetDirectoryName(absolutePath);
-		if (!string.IsNullOrWhiteSpace(directory))
-		{
-			Directory.CreateDirectory(directory);
-		}
-
-		return message =>
-		{
-			var line = $"[{DateTimeOffset.Now:yyyy-MM-dd HH:mm:ss}] {message}";
-			if (writeToConsole)
-			{
-				Console.WriteLine(line);
-			}
-			lock (sync)
-			{
-				File.AppendAllText(absolutePath, line + Environment.NewLine);
-			}
-		};
 	}
 
 	private static void TryHideConsoleWindow()
