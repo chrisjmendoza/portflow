@@ -23,7 +23,7 @@ if (!(Test-Path -LiteralPath $configPath)) {
 }
 
 $taskName = "PortFlowBackup"
-$taskPath = "\PortFlowBackup\\"
+$taskPath = "\PortFlowBackup\"
 
 $action = New-ScheduledTaskAction `
     -Execute $exePath `

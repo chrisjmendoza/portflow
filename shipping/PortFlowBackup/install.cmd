@@ -33,9 +33,7 @@ if errorlevel 1 (
     pause
     exit /b 1
   )
-  echo A new installer window should open.
-  echo.
-  pause
+  rem Elevation succeeded - close this window, elevated instance will show result
   exit /b 0
 )
 
