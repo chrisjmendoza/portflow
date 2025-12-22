@@ -225,7 +225,18 @@ To remove PortFlow from your system:
 
    uninstall.cmd
 
-This removes the background task.
+This removes the background task (Windows Scheduled Task named: PortFlowBackup).
+
+VERIFY TASK REMOVAL (OPTIONAL)
+------------------------------
+After uninstalling, you can confirm the task is gone:
+• Task Scheduler → Task Scheduler Library → PortFlowBackup
+
+Or from Command Prompt:
+   schtasks /Query /TN "PortFlowBackup"
+
+If the task still exists, remove it:
+   schtasks /Delete /TN "PortFlowBackup" /F
 No files on your USB drive are deleted.
 
 

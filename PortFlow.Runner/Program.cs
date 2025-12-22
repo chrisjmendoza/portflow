@@ -37,7 +37,7 @@ internal static class Program
 
 	private readonly record struct VolumeEvent(VolumeEventKind Kind, string DriveRoot);
 
-	private sealed record RunnerOptions(string ConfigPath, string? UsbRoot, bool RunOnce, bool Silent, bool Tray);
+	private sealed record RunnerOptions(string? ConfigPath, string? UsbRoot, bool RunOnce, bool Silent, bool Tray, bool Help);
 	private const string MarkerFileName = "PORTFLOW_TARGET.txt";
 
 	[STAThread]
@@ -56,7 +56,15 @@ internal static class Program
 		catch (Exception ex)
 		{
 			Console.Error.WriteLine(ex.Message);
+			Console.Error.WriteLine();
+			Console.Error.WriteLine(GetUsageText());
 			return 1;
+		}
+
+		if (options.Help)
+		{
+			Console.WriteLine(GetUsageText());
+			return 0;
 		}
 
 		const string MutexName = "Global\\PortFlow_USB_Backup_Mutex";
@@ -81,7 +89,7 @@ internal static class Program
 		BackupConfig cfg;
 		try
 		{
-			cfg = BackupConfig.Load(Path.GetFullPath(options.ConfigPath));
+			cfg = BackupConfig.Load(Path.GetFullPath(options.ConfigPath!));
 		}
 		catch (Exception ex)
 		{
@@ -597,12 +605,18 @@ internal static class Program
 		var runOnce = false;
 		var silent = false;
 		var tray = false;
+		var help = false;
 
 		for (var i = 0; i < args.Count; i++)
 		{
 			var arg = args[i];
 			switch (arg)
 			{
+				case "--help":
+				case "-h":
+				case "/?":
+					help = true;
+					break;
 				case "--config":
 					if (i + 1 >= args.Count) throw new ArgumentException("--config requires a path argument.");
 					configPath = args[++i];
@@ -625,12 +639,38 @@ internal static class Program
 			}
 		}
 
+		if (help)
+		{
+			return new RunnerOptions(ConfigPath: null, UsbRoot: usbRoot, RunOnce: runOnce, Silent: silent, Tray: tray, Help: true);
+		}
+
 		if (string.IsNullOrWhiteSpace(configPath))
 		{
 			throw new ArgumentException("--config <path> is required.");
 		}
 
-		return new RunnerOptions(configPath, usbRoot, runOnce, silent, tray);
+		return new RunnerOptions(configPath, usbRoot, runOnce, silent, tray, help);
+	}
+
+	private static string GetUsageText()
+	{
+		return
+			"PortFlow.Runner (PortFlow Backup)\n" +
+			"\n" +
+			"Usage:\n" +
+			"  PortFlow.Runner.exe --config <path> [--tray] [--silent] [--run-once] [--usb-root <root>]\n" +
+			"\n" +
+			"Options:\n" +
+			"  --config <path>     Path to portflow.backup.json (required for normal execution)\n" +
+			"  --tray              Run in system tray (Windows only)\n" +
+			"  --silent            Do not write logs to console (still writes to log file)\n" +
+			"  --run-once          Run one backup attempt and exit\n" +
+			"  --usb-root <root>   Explicit target drive root (e.g. E:\\)\n" +
+			"  --help, -h, /?      Show this help and exit\n" +
+			"\n" +
+			"Notes:\n" +
+			"  - In watcher mode (stayRunning=true), the runner listens for USB volume arrival/removal events.\n" +
+			"  - The sentinel file 'PORTFLOW_TARGET.txt' in the drive root selects the backup target when --usb-root is not used.\n";
 	}
 
 	private static void TryHideConsoleWindow()

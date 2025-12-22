@@ -21,6 +21,7 @@
   <ItemGroup>
     <Content Include="Assets\portflow.ico">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+      <CopyToPublishDirectory>Always</CopyToPublishDirectory>
       <TargetPath>portflow.ico</TargetPath>
     </Content>
   </ItemGroup>

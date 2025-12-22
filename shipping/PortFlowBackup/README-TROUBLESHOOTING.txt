@@ -38,3 +38,14 @@ If needed:
 2. Run install.cmd again
 
 This does not delete any files on your USB drive.
+
+SCHEDULED TASK (ADVANCED)
+-------------------------
+PortFlow runs via a Windows Scheduled Task named:
+	PortFlowBackup
+
+To check whether it exists:
+	schtasks /Query /TN "PortFlowBackup"
+
+To remove it manually (run Command Prompt as Administrator):
+	schtasks /Delete /TN "PortFlowBackup" /F

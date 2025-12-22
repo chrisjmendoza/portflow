@@ -18,7 +18,7 @@ if /i "%~1"=="--elevated" (
 
 rem Ensure admin elevation (standard pattern)
 net session >nul 2>&1
-if not "%errorlevel%"=="0" (
+if errorlevel 1 (
   echo.
   echo PortFlowBackup Installer
   echo =======================
@@ -27,7 +27,7 @@ if not "%errorlevel%"=="0" (
   echo If Windows prompts you, choose Yes.
   echo.
   powershell -NoProfile -ExecutionPolicy Bypass -Command "Start-Process -FilePath '%~f0' -Verb RunAs -WindowStyle Normal -ArgumentList '--elevated','%PF_USER%'" >nul 2>&1
-  if not "%errorlevel%"=="0" (
+  if errorlevel 1 (
     echo Failed to request administrator elevation.
     echo.
     pause
