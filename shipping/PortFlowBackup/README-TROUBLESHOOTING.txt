@@ -42,10 +42,10 @@ This does not delete any files on your USB drive.
 SCHEDULED TASK (ADVANCED)
 -------------------------
 PortFlow runs via a Windows Scheduled Task named:
-	PortFlowBackup
+   \PortFlowBackup\PortFlowBackup
 
 To check whether it exists:
-	schtasks /Query /TN "PortFlowBackup"
+   schtasks /Query /TN "\PortFlowBackup\PortFlowBackup"
 
 To remove it manually (run Command Prompt as Administrator):
-	schtasks /Delete /TN "PortFlowBackup" /F
+   schtasks /Delete /TN "\PortFlowBackup\PortFlowBackup" /F

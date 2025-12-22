@@ -94,8 +94,8 @@ if not exist "%INSTALLDIR%\portflow.backup.json" (
   )
 )
 
-rem Register / replace scheduled task
-powershell -NoProfile -ExecutionPolicy Bypass -File "%SRCDIR%install-task.ps1" -InstallDir "%INSTALLDIR%" -UserId "%PF_USER%" >>"%INSTALLLOG%" 2>&1
+rem Register / replace scheduled task (use installed copy for reliability)
+powershell -NoProfile -ExecutionPolicy Bypass -File "%INSTALLDIR%\install-task.ps1" -InstallDir "%INSTALLDIR%" -UserId "%PF_USER%" >>%INSTALLLOG% 2>&1
 if not "%errorlevel%"=="0" (
   set "RC=1"
   set "FAIL_REASON=Scheduled task registration failed (see install.log)"

@@ -2,6 +2,8 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
 
 namespace PortFlow.Runner.Usb;
 
@@ -76,7 +78,14 @@ internal static class UsbTargetResolver
         DriveInfo[] drives;
         try
         {
-            drives = DriveInfo.GetDrives();
+            // GetDrives() can block on network drives; add timeout
+            var getDrivesTask = Task.Run(() => DriveInfo.GetDrives());
+            if (!getDrivesTask.Wait(TimeSpan.FromSeconds(5)))
+            {
+                log("Drive enumeration timed out (network drive issue?). Using empty list.");
+                return matches;
+            }
+            drives = getDrivesTask.Result;
         }
         catch (Exception ex)
         {
@@ -84,27 +93,68 @@ internal static class UsbTargetResolver
             return matches;
         }
 
-        foreach (var drive in drives)
+        // Process drives in parallel with per-drive timeout
+        var driveTasks = drives.Select(drive => Task.Run(async () =>
         {
             try
             {
-                // Many external HDD/SSD devices appear as Fixed; still require the sentinel file.
-                if (drive.DriveType != DriveType.Removable && drive.DriveType != DriveType.Fixed)
-                    continue;
+                // Scan Removable only to avoid touching internal drives
+                // (External USB SSDs that appear as Fixed require --usb-root)
+                if (drive.DriveType != DriveType.Removable)
+                {
+                    return null;
+                }
 
-                if (!drive.IsReady)
-                    continue;
+                // IsReady can block on dying drives
+                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+                var isReadyTask = Task.Run(() => drive.IsReady, cts.Token);
+                var isReady = await isReadyTask.ConfigureAwait(false);
+                
+                if (!isReady)
+                    return null;
 
                 var root = drive.RootDirectory.FullName; // e.g. "E:\\"
                 var markerPath = Path.Combine(root, markerFileName);
 
-                if (File.Exists(markerPath))
-                    matches.Add(root);
+                // File.Exists can also block
+                var existsTask = Task.Run(() => File.Exists(markerPath), cts.Token);
+                var exists = await existsTask.ConfigureAwait(false);
+                
+                return exists ? root : null;
+            }
+            catch (OperationCanceledException)
+            {
+                log($"Drive scan timed out ({drive.Name})");
+                return null;
             }
             catch (Exception ex)
             {
                 // Never crash because one drive is weird
                 log($"Drive scan skipped ({drive.Name}): {ex.Message}");
+                return null;
+            }
+        })).ToArray();
+
+        try
+        {
+            Task.WaitAll(driveTasks, TimeSpan.FromSeconds(10));
+            foreach (var task in driveTasks)
+            {
+                if (task.IsCompletedSuccessfully && task.Result != null)
+                {
+                    matches.Add(task.Result);
+                }
+            }
+        }
+        catch
+        {
+            // Timeout or other error - use what we have
+            foreach (var task in driveTasks)
+            {
+                if (task.IsCompletedSuccessfully && task.Result != null)
+                {
+                    matches.Add(task.Result);
+                }
             }
         }
 

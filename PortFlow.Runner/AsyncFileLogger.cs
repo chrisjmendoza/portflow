@@ -22,20 +22,25 @@ internal sealed class AsyncFileLogger : IAsyncDisposable
 	private readonly CancellationTokenSource _cts = new();
 	private readonly Task _writerTask;
 	private readonly bool _writeToConsole;
+	private readonly string _logPath;
+	private readonly string _absoluteLogPath;
 
 	private readonly int _flushEveryLines;
 	private readonly TimeSpan _flushInterval;
 
 	private long _droppedCount;
+	private long _lastDropWarningCount;
 	private int _disposed;
 
 	private AsyncFileLogger(string logPath, bool writeToConsole, int bufferCapacity, int flushEveryLines, TimeSpan flushInterval)
 	{
 		_writeToConsole = writeToConsole;
+		_logPath = logPath;
+		_absoluteLogPath = Path.GetFullPath(logPath);
 		_flushEveryLines = flushEveryLines;
 		_flushInterval = flushInterval;
 
-		var absolutePath = Path.GetFullPath(logPath);
+		var absolutePath = _absoluteLogPath;
 		var directory = Path.GetDirectoryName(absolutePath);
 		if (!string.IsNullOrWhiteSpace(directory))
 		{
@@ -88,7 +93,37 @@ internal sealed class AsyncFileLogger : IAsyncDisposable
 
 		if (!_channel.Writer.TryWrite(line))
 		{
-			Interlocked.Increment(ref _droppedCount);
+			var dropped = Interlocked.Increment(ref _droppedCount);
+			var lastWarning = Interlocked.Read(ref _lastDropWarningCount);
+			
+			// Warn on first drop and every 100 drops
+			if (dropped == 1 || dropped - lastWarning >= 100)
+			{
+				Interlocked.Exchange(ref _lastDropWarningCount, dropped);
+				var warningMsg = $"[WARNING] Log buffer saturated - {dropped} messages dropped";
+				
+				if (_writeToConsole)
+				{
+					try
+					{
+						Console.WriteLine(warningMsg);
+					}
+					catch
+					{
+						// ignored
+					}
+				}
+				
+				// Also write to file in silent/tray mode
+				try
+				{
+					File.AppendAllText(_absoluteLogPath, $"[{DateTimeOffset.Now:yyyy-MM-dd HH:mm:ss}] {warningMsg}\n");
+				}
+				catch
+				{
+					// Best effort only
+				}
+			}
 		}
 	}
 
@@ -96,12 +131,15 @@ internal sealed class AsyncFileLogger : IAsyncDisposable
 	{
 		try
 		{
+			// Adaptive buffer: 8KB fixed drives, 32KB removable/network, 16KB fallback
+			var bufferSize = DetectOptimalBufferSize(absolutePath);
+			
 			await using var stream = new FileStream(
 				absolutePath,
 				FileMode.Append,
 				FileAccess.Write,
 				FileShare.Read,
-				bufferSize: 64 * 1024,
+				bufferSize: bufferSize,
 				useAsync: true
 			);
 			await using var writer = new StreamWriter(stream, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
@@ -149,6 +187,27 @@ internal sealed class AsyncFileLogger : IAsyncDisposable
 		catch
 		{
 			// Last resort: never crash the runner due to logging.
+		}
+	}
+
+	private static int DetectOptimalBufferSize(string filePath)
+	{
+		try
+		{
+			var drive = new DriveInfo(Path.GetPathRoot(filePath) ?? "C:\\");
+			
+			// Adaptive buffer: 8KB for Fixed, 32KB for Removable/Network, 16KB fallback
+			if (drive.DriveType == DriveType.Fixed)
+			{
+				return 8 * 1024;
+			}
+			
+			return 32 * 1024;
+		}
+		catch
+		{
+			// Fallback to safe middle ground
+			return 16 * 1024;
 		}
 	}
 

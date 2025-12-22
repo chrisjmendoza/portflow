@@ -55,17 +55,15 @@ schtasks /End /TN "%TASKNAME%" >nul 2>&1
 taskkill /F /IM "PortFlow.Runner.exe" /T >nul 2>&1
 
 rem Remove scheduled task (ignore if missing)
-rem schtasks sometimes expects a fully-qualified path (e.g. "\PortFlowBackup").
+rem Use explicit full path: \PortFlowBackup\PortFlowBackup
 set "TASK_DELETE_OK=0"
 schtasks /Delete /TN "%TASKNAME%" /F >nul 2>&1 && set "TASK_DELETE_OK=1"
-schtasks /Delete /TN "\%TASKNAME%" /F >nul 2>&1 && set "TASK_DELETE_OK=1"
 
 rem Fallback: attempt removal via PowerShell ScheduledTasks module.
-powershell -NoProfile -ExecutionPolicy Bypass -Command "try { $t = Get-ScheduledTask -TaskName '%TASKNAME%' -ErrorAction SilentlyContinue; if ($t) { Unregister-ScheduledTask -TaskName '%TASKNAME%' -Confirm:$false -ErrorAction SilentlyContinue | Out-Null; exit 0 } else { exit 0 } } catch { exit 0 }" >nul 2>&1
+powershell -NoProfile -ExecutionPolicy Bypass -Command "try { $t = Get-ScheduledTask -TaskPath '\PortFlowBackup\' -TaskName 'PortFlowBackup' -ErrorAction SilentlyContinue; if ($t) { Unregister-ScheduledTask -TaskPath '\PortFlowBackup\' -TaskName 'PortFlowBackup' -Confirm:$false -ErrorAction SilentlyContinue | Out-Null; exit 0 } else { exit 0 } } catch { exit 0 }" >nul 2>&1
 
 rem Re-check whether task still exists.
 schtasks /Query /TN "%TASKNAME%" >nul 2>&1 && set "TASK_DELETE_OK=0"
-schtasks /Query /TN "\%TASKNAME%" >nul 2>&1 && set "TASK_DELETE_OK=0"
 
 rem Remove installed files (retry a few times in case the process is exiting)
 set "RC=0"

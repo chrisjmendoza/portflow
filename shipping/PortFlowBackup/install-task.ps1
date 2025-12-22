@@ -23,6 +23,7 @@ if (!(Test-Path -LiteralPath $configPath)) {
 }
 
 $taskName = "PortFlowBackup"
+$taskPath = "\PortFlowBackup\\"
 
 $action = New-ScheduledTaskAction `
     -Execute $exePath `
@@ -46,4 +47,4 @@ $principal = New-ScheduledTaskPrincipal `
 
 $task = New-ScheduledTask -Action $action -Trigger $trigger -Settings $settings -Principal $principal
 
-Register-ScheduledTask -TaskName $taskName -InputObject $task -Force | Out-Null
+Register-ScheduledTask -TaskName $taskName -TaskPath $taskPath -InputObject $task -Force | Out-Null

@@ -273,15 +273,50 @@ internal static class Program
 			ct
 		);
 
-		// WMI query: volume arrival + removal (EventType: 2=arrival, 3=removal)
-		var query = new WqlEventQuery("SELECT * FROM Win32_VolumeChangeEvent WHERE EventType = 2 OR EventType = 3");
-		using var watcher = new ManagementEventWatcher(query);
+		// WMI watcher health: recreate periodically to release COM handles
+		const int WatcherRestartHours = 24;
+		var eventRateMonitor = new Queue<DateTimeOffset>();
+		const int MaxEventsPerMinute = 100;
+		var stormWarningLogged = false;
 
-		watcher.EventArrived += (_, e) =>
+		try
 		{
-			try
+			// Watcher recreation loop: dispose and create new instance every 24h to release COM handles
+			while (!ct.IsCancellationRequested)
 			{
-				var newEvent = e.NewEvent;
+				var watcherRestartTimer = DateTimeOffset.UtcNow.AddHours(WatcherRestartHours);
+				stormWarningLogged = false;
+
+				// WMI query: volume arrival + removal (EventType: 2=arrival, 3=removal)
+				var query = new WqlEventQuery("SELECT * FROM Win32_VolumeChangeEvent WHERE EventType = 2 OR EventType = 3");
+				using var watcher = new ManagementEventWatcher(query);
+
+				watcher.EventArrived += (_, e) =>
+				{
+					try
+					{
+						// Circuit breaker: detect event storms
+						var now = DateTimeOffset.UtcNow;
+						lock (eventRateMonitor)
+						{
+							eventRateMonitor.Enqueue(now);
+							while (eventRateMonitor.Count > 0 && now - eventRateMonitor.Peek() > TimeSpan.FromMinutes(1))
+							{
+								eventRateMonitor.Dequeue();
+							}
+							if (eventRateMonitor.Count > MaxEventsPerMinute)
+							{
+								// Drop events during storm
+								if (!stormWarningLogged)
+								{
+									log($"Event storm detected (>{MaxEventsPerMinute}/min). Dropping events until rate normalizes.");
+									stormWarningLogged = true;
+								}
+								return;
+							}
+						}
+
+						var newEvent = e.NewEvent;
 				var driveName = newEvent?.Properties["DriveName"]?.Value as string;
 				var eventTypeObj = newEvent?.Properties["EventType"]?.Value;
 
@@ -305,19 +340,48 @@ internal static class Program
 					_ => (VolumeEventKind?)null
 				};
 
-				if (kind is null) return;
-				_ = volumeEvents.Writer.TryWrite(new VolumeEvent(kind.Value, driveRoot));
-			}
-			catch
-			{
-				// ignored: never crash WMI event thread
-			}
-		};
+						if (kind is null) return;
+						_ = volumeEvents.Writer.TryWrite(new VolumeEvent(kind.Value, driveRoot));
+					}
+					catch
+					{
+						// ignored: never crash WMI event thread
+					}
+				};
 
-		try
-		{
-			watcher.Start();
-			await Task.Delay(Timeout.Infinite, ct).ConfigureAwait(false);
+				try
+				{
+					watcher.Start();
+					
+					// Wait until restart deadline
+					var delay = watcherRestartTimer - DateTimeOffset.UtcNow;
+					if (delay > TimeSpan.Zero)
+					{
+						await Task.Delay(delay, ct).ConfigureAwait(false);
+					}
+					
+					if (!ct.IsCancellationRequested)
+					{
+						log($"Recreating WMI watcher (health maintenance after {WatcherRestartHours}h)...");
+					}
+				}
+				catch (OperationCanceledException)
+				{
+					// Normal shutdown
+				}
+				finally
+				{
+					try
+					{
+						watcher.Stop();
+					}
+					catch
+					{
+						// ignored
+					}
+					// Watcher will be disposed at end of using block
+				}
+			}
 		}
 		catch (OperationCanceledException)
 		{
@@ -328,15 +392,6 @@ internal static class Program
 			try
 			{
 				volumeEvents.Writer.TryComplete();
-			}
-			catch
-			{
-				// ignored
-			}
-
-			try
-			{
-				watcher.Stop();
 			}
 			catch
 			{
@@ -369,9 +424,10 @@ internal static class Program
 		var lastArrivalByDrive = new Dictionary<string, DateTimeOffset>(StringComparer.OrdinalIgnoreCase);
 		var inFlightSentinelChecks = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 		var warnedSentinelCheck = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+		var sentinelCheckBackoff = new Dictionary<string, DateTimeOffset>(StringComparer.OrdinalIgnoreCase);
 
 		var explicitRoot = string.IsNullOrWhiteSpace(options.UsbRoot) ? null : NormalizeExplicitUsbRoot(options.UsbRoot);
-		var debounceWindow = TimeSpan.FromSeconds(8);
+		var debounceWindow = TimeSpan.FromSeconds(3);
 		var conflictActive = false;
 
 		await foreach (var ev in reader.ReadAllAsync(ct).ConfigureAwait(false))
@@ -414,6 +470,16 @@ internal static class Program
 					}
 					else
 					{
+						// Exponential backoff for drives that timeout
+						if (sentinelCheckBackoff.TryGetValue(driveRoot, out var backoffUntil))
+						{
+							if (now < backoffUntil)
+							{
+								break;
+							}
+							sentinelCheckBackoff.Remove(driveRoot);
+						}
+
 						if (inFlightSentinelChecks.Contains(driveRoot))
 						{
 							break;
@@ -422,8 +488,15 @@ internal static class Program
 						inFlightSentinelChecks.Add(driveRoot);
 						try
 						{
-							hasSentinel = await HasSentinelAsync(driveRoot, MarkerFileName, log, warnedSentinelCheck, ct)
+							var checkResult = await HasSentinelAsync(driveRoot, MarkerFileName, log, warnedSentinelCheck, ct)
 								.ConfigureAwait(false);
+							hasSentinel = checkResult.HasSentinel;
+							
+							// Apply backoff if check timed out
+							if (checkResult.TimedOut)
+							{
+								sentinelCheckBackoff[driveRoot] = now.AddSeconds(30);
+							}
 						}
 						finally
 						{
@@ -496,7 +569,9 @@ internal static class Program
 		}
 	}
 
-	private static async Task<bool> HasSentinelAsync(
+	private readonly record struct SentinelCheckResult(bool HasSentinel, bool TimedOut);
+
+	private static async Task<SentinelCheckResult> HasSentinelAsync(
 		string driveRoot,
 		string markerFileName,
 		Action<string> log,
@@ -505,12 +580,16 @@ internal static class Program
 	{
 		if (!IsValidLocalDriveRoot(driveRoot))
 		{
-			return false;
+			return new SentinelCheckResult(false, false);
 		}
 
 		var markerPath = Path.Combine(driveRoot, markerFileName);
 		try
 		{
+			// Timeout for sentinel check (note: File.Exists cannot be canceled mid-call, but we stop waiting)
+			using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+			cts.CancelAfter(TimeSpan.FromSeconds(2));
+			
 			var existsTask = Task.Run(() =>
 			{
 				try
@@ -528,20 +607,23 @@ internal static class Program
 				{
 					return false;
 				}
-			}, ct);
+			}, cts.Token);
 
-			return await existsTask.WaitAsync(TimeSpan.FromSeconds(2), ct).ConfigureAwait(false);
+			var result = await existsTask.ConfigureAwait(false);
+			return new SentinelCheckResult(result, false);
 		}
-		catch (TimeoutException)
+		catch (OperationCanceledException) when (!ct.IsCancellationRequested)
 		{
+			// Timeout from our CTS
 			if (warnedSentinelCheck.Add(driveRoot))
 			{
-				log($"Sentinel check timed out for {driveRoot}; treating as no sentinel.");
+				log($"Sentinel check timed out for {driveRoot}; applying 30s backoff.");
 			}
-			return false;
+			return new SentinelCheckResult(false, true);
 		}
 		catch (OperationCanceledException)
 		{
+			// User cancellation
 			throw;
 		}
 		catch (Exception ex)
@@ -550,7 +632,7 @@ internal static class Program
 			{
 				log($"Sentinel check failed for {driveRoot}: {ex.Message}");
 			}
-			return false;
+			return new SentinelCheckResult(false, false);
 		}
 	}
 
@@ -644,9 +726,10 @@ internal static class Program
 			return new RunnerOptions(ConfigPath: null, UsbRoot: usbRoot, RunOnce: runOnce, Silent: silent, Tray: tray, Help: true);
 		}
 
+		// Default to portflow.backup.json in app directory if --config is omitted
 		if (string.IsNullOrWhiteSpace(configPath))
 		{
-			throw new ArgumentException("--config <path> is required.");
+			configPath = Path.Combine(AppContext.BaseDirectory, "portflow.backup.json");
 		}
 
 		return new RunnerOptions(configPath, usbRoot, runOnce, silent, tray, help);
@@ -658,10 +741,10 @@ internal static class Program
 			"PortFlow.Runner (PortFlow Backup)\n" +
 			"\n" +
 			"Usage:\n" +
-			"  PortFlow.Runner.exe --config <path> [--tray] [--silent] [--run-once] [--usb-root <root>]\n" +
+			"  PortFlow.Runner.exe [--config <path>] [--tray] [--silent] [--run-once] [--usb-root <root>]\n" +
 			"\n" +
 			"Options:\n" +
-			"  --config <path>     Path to portflow.backup.json (required for normal execution)\n" +
+			"  --config <path>     Path to portflow.backup.json (default: portflow.backup.json next to .exe)\n" +
 			"  --tray              Run in system tray (Windows only)\n" +
 			"  --silent            Do not write logs to console (still writes to log file)\n" +
 			"  --run-once          Run one backup attempt and exit\n" +
@@ -677,10 +760,17 @@ internal static class Program
 	{
 		try
 		{
+			// Only attempt if console is not redirected
+			if (Console.IsOutputRedirected || Console.IsErrorRedirected)
+			{
+				return;
+			}
+
 			var consoleHandle = GetConsoleWindow();
 			if (consoleHandle != IntPtr.Zero)
 			{
-				_ = ShowWindow(consoleHandle, SW_HIDE);
+				// FreeConsole releases resources; hiding just hides the window
+				_ = FreeConsole();
 			}
 		}
 		catch
@@ -689,13 +779,11 @@ internal static class Program
 		}
 	}
 
-	private const int SW_HIDE = 0;
-
 	[DllImport("kernel32.dll")]
 	private static extern IntPtr GetConsoleWindow();
 
-	[DllImport("user32.dll")]
-	private static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+	[DllImport("kernel32.dll")]
+	private static extern bool FreeConsole();
 
 	private static bool ShouldHideConsoleEarly(IReadOnlyList<string> args)
 	{
