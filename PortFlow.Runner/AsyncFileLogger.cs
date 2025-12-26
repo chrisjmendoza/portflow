@@ -47,6 +47,9 @@ internal sealed class AsyncFileLogger : IAsyncDisposable
 			Directory.CreateDirectory(directory);
 		}
 
+		// Rotate logs if necessary before starting writer
+		RotateLogsIfNeeded(absolutePath);
+
 		_channel = Channel.CreateBounded<string>(new BoundedChannelOptions(bufferCapacity)
 		{
 			SingleReader = true,
@@ -246,5 +249,53 @@ internal sealed class AsyncFileLogger : IAsyncDisposable
 		}
 
 		_cts.Dispose();
+	}
+
+	/// <summary>
+	/// Rotates log files if the current log exceeds size limits.
+	/// Keeps the last 5 log files with a combined size limit of 5 MB.
+	/// </summary>
+	/// <remarks>
+	/// Log files are rotated as: portflow.log → portflow.log.1 → portflow.log.2 → ... → portflow.log.5
+	/// The oldest file (portflow.log.5) is deleted when rotation occurs.
+	/// </remarks>
+	private static void RotateLogsIfNeeded(string logPath)
+	{
+		const long MaxLogSizeBytes = 1 * 1024 * 1024; // 1 MB per file
+		const int MaxLogFiles = 5;
+
+		try
+		{
+			if (!File.Exists(logPath))
+				return;
+
+			var logFileInfo = new FileInfo(logPath);
+			if (logFileInfo.Length < MaxLogSizeBytes)
+				return;
+
+			// Rotate existing backup files (.1 → .2, .2 → .3, etc.)
+			for (int i = MaxLogFiles - 1; i >= 1; i--)
+			{
+				var oldFile = $"{logPath}.{i}";
+				var newFile = $"{logPath}.{i + 1}";
+
+				if (i == MaxLogFiles - 1)
+				{
+					// Delete oldest file
+					if (File.Exists(newFile))
+						File.Delete(newFile);
+				}
+
+				if (File.Exists(oldFile))
+					File.Move(oldFile, newFile, overwrite: true);
+			}
+
+			// Move current log to .1
+			File.Move(logPath, $"{logPath}.1", overwrite: true);
+		}
+		catch
+		{
+			// Best effort only - never crash due to log rotation
+		}
 	}
 }
