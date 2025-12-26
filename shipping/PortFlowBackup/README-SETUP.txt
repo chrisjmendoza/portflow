@@ -42,7 +42,7 @@ Example:
 Only drives containing this file will be used for backups.
 
 NOTES:
- You can have multiple USB drives plugged in  only the one with
+ You can have multiple USB drives plugged in, only the one with
   PORTFLOW_TARGET.txt will be used.
  If you ever format this drive or replace it with a new one, simply copy
   PORTFLOW_TARGET.txt onto the new drive.
@@ -65,11 +65,31 @@ STEP 2  EDIT THE BACKUP SETTINGS
 
    "sourcePath"
       The folder on your computer you want to back up
+      Use double backslashes (\\) in the path
+      
+      Example:
+        "sourcePath": "C:\\Users\\YourName\\Documents\\MyFolder"
 
    "destinationFolderName"
       The folder name that will be created on the USB drive
+      
+      Examples:
+        "destinationFolderName": "Backup"
+        (creates backup at E:\Backup\ on your USB)
+        
+        "destinationFolderName": "MyBackup"
+        (creates backup at E:\MyBackup\ on your USB)
 
 4. Click **File  Save**, then close Notepad.
+
+5. (RECOMMENDED) Test your configuration:
+
+   Double-click:
+   
+   test-config.cmd
+   
+   This will check for common errors in your configuration before you install.
+   If it reports any errors, go back and fix your portflow.backup.json file.
 
 
 OPTIONAL  BACKUP TO USB ROOT

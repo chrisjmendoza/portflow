@@ -5,7 +5,19 @@ PortFlow is a Windows desktop utility that detects removable USB devices and exe
 It is designed for reliability, traceability, and automation — turning “plug in a drive” into a deterministic workflow with clear logging and optional verification.
 
 ---
+## Download
 
+**Note:** The compiled `.exe` files are **not included in this repository**. 
+
+To download the latest release:
+
+1. Go to the [Releases](../../releases) page
+2. Download the latest `.zip` package
+3. Extract and follow the setup instructions included in the package
+
+All executable binaries are published as GitHub Releases only.
+
+---
 ## Key Features
 
 - Detects USB / removable media insertion and removal on Windows
@@ -82,4 +94,6 @@ PortFlow aims to make these workflows **repeatable, safe, and observable**, inst
 
 ## License
 
-License to be determined.
+MIT License. See [LICENSE](LICENSE) for full details.
+
+**Disclaimer:** This software is provided as-is. Test thoroughly with your data before relying on it for important workflows. Always keep backups of critical files.

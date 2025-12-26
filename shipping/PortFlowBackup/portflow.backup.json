@@ -1,4 +1,5 @@
 {
+  "_comment": "Edit sourcePath to the folder you want to back up. Save this file after editing. Backup runs automatically when USB is inserted.",
   "sourcePath": "C:\\Temp\\BackupSource",
   "destinationFolderName": "Backup",
   "mirror": true,

@@ -462,6 +462,7 @@ $RECYCLE.BIN/
 *.pdb
 *.deps.json
 *.runtimeconfig.json
+*.zip
 shipping/**/PortFlow.Runner.exe
 shipping/**/PortFlow.Runner.dll
 shipping/**/PortFlow.Runner*.json
@@ -470,4 +471,8 @@ shipping/**/PortFlow.Runner*.json
 !shipping/PortFlowBackup/install-task.ps1
 !shipping/PortFlowBackup/install.cmd
 !shipping/PortFlowBackup/uninstall.cmd
+!shipping/PortFlowBackup/test-config.cmd
 !shipping/PortFlowBackup/portflow.backup.json
+!shipping/PortFlowBackup/README-SETUP.txt
+!shipping/PortFlowBackup/README-TROUBLESHOOTING.txt
+!shipping/PortFlowBackup/PORTFLOW_TARGET.txt
