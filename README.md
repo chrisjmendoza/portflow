@@ -14,7 +14,9 @@ This repository contains two related efforts:
 **PortFlowBackup** is a lightweight Windows utility that automatically runs a `robocopy`-based backup when a specific USB or external drive is inserted.
 
 **Download:**  
-➡️ Go to the **Releases** page and download `PortFlowBackup.zip`
+➡️ Go to the **[Releases](../../releases)** page and download `PortFlowBackup.zip`
+
+**Note:** The compiled `.exe` files are **not included in this repository**. All executable binaries are published as GitHub Releases only.
 
 ### Quick Start
 1. Extract `PortFlowBackup.zip`
