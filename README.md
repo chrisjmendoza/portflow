@@ -1,99 +1,68 @@
 # PortFlow
 
-PortFlow is a Windows desktop utility that detects removable USB devices and executes configurable file-processing pipelines when media is inserted.
+PortFlow is a Windows-based file transfer and backup project focused on **reliable, low-footprint automation**.
 
-It is designed for reliability, traceability, and automation — turning “plug in a drive” into a deterministic workflow with clear logging and optional verification.
+This repository contains two related efforts:
 
----
-## Download
-
-**Note:** The compiled `.exe` files are **not included in this repository**. 
-
-To download the latest release:
-
-1. Go to the [Releases](../../releases) page
-2. Download the latest `.zip` package
-3. Extract and follow the setup instructions included in the package
-
-All executable binaries are published as GitHub Releases only.
-
----
-## Key Features
-
-- Detects USB / removable media insertion and removal on Windows
-- Automatically runs a processing pipeline on insert (optional)
-- Manual run mode for testing and debugging
-- Clear, readable run logs in the UI
-- Resilient device detection (polling fallback when system events are unavailable)
+- **PortFlowBackup** — a finished, shippable Windows utility (v1.0.0)
+- **PortFlow (Core)** — ongoing development toward a larger, configurable file-flow engine
 
 ---
 
-## Current Status
+## ✅ Download: PortFlowBackup v1.0.0
 
-**Early development / prototype stage**
+**PortFlowBackup** is a lightweight Windows utility that automatically runs a `robocopy`-based backup when a specific USB or external drive is inserted.
 
-PortFlow currently supports:
-- USB detection
-- Auto-run and manual pipeline execution
-- Example pipeline step (`HelloStep`) for verification and wiring
+**Download:**  
+➡️ Go to the **[Releases](../../releases)** page and download `PortFlowBackup.zip`
 
-The architecture is in place to support real workflows such as scanning, copying, and validating files.
+**Note:** The compiled `.exe` files are **not included in this repository**. All executable binaries are published as GitHub Releases only.
 
----
+### Quick Start
+1. Extract `PortFlowBackup.zip`
+2. Run `install.cmd` as **Administrator**
+3. When prompted, edit `portflow.backup.json`
+4. Copy `PORTFLOW_TARGET.txt` to the **root** of your backup USB drive
 
-## Architecture Overview
+After setup, backups run automatically whenever the target USB drive is inserted.
 
-PortFlow is split into two main projects:
-
-- **PortFlow.App**
-  - WPF desktop application
-  - USB detection, UI, and lifecycle management
-- **PortFlow.Core**
-  - Pipeline engine and step abstractions
-  - Platform-agnostic logic (no UI or Windows dependencies)
-
-Pipelines are composed of ordered steps implementing a shared interface, allowing workflows to evolve without rewriting the app.
+### Notes
+- Runs silently in the background (system tray)
+- No UI, no cloud services, no telemetry
+- Logs: `C:\ProgramData\PortFlowBackup\logs`
+- Uninstall: run `uninstall.cmd` as Administrator
 
 ---
 
-## Example Workflow (Planned)
+## What’s in this Repository?
 
-1. User inserts USB drive
-2. PortFlow detects removable media
-3. Pipeline runs automatically:
-   - Scan files
-   - Copy to destination
-   - Verify results
-   - Generate manifest
-4. User reviews log output
+### PortFlowBackup (Released Utility)
+- Shipping scripts and documentation live under `/shipping/PortFlowBackup`
+- Executable binaries are **not** stored in git
+- Downloads are provided via **GitHub Releases**
 
----
-
-## Why PortFlow Exists
-
-USB-based workflows are common in:
-- Manufacturing and CNC environments
-- Media ingestion and archiving
-- Field data collection
-- 3D printing and machine control
-
-PortFlow aims to make these workflows **repeatable, safe, and observable**, instead of manual and error-prone.
+### PortFlow Core (In Development)
+- Core libraries and experimental components for a broader file-flow system
+- Not yet considered stable or end-user ready
+- Subject to change as design evolves
 
 ---
 
-## Roadmap (High-Level)
-
-- Replace demo step with real `ScanStep`
-- Config-driven pipelines
-- Safe copy + verification steps
-- Manifest and structured logging
-- Device allowlisting
-- Packaging for non-developer machines
+## Design Philosophy
+- Reliability over features
+- Event-driven, not polling
+- Minimal system impact
+- Safe failure modes
+- “Set it and forget it” operation
 
 ---
 
 ## License
+This project is licensed under the **MIT License**.  
+See the `LICENSE` file for details.
 
-MIT License. See [LICENSE](LICENSE) for full details.
+---
 
-**Disclaimer:** This software is provided as-is. Test thoroughly with your data before relying on it for important workflows. Always keep backups of critical files.
+## Disclaimer
+This software is provided **as-is**, without warranty.  
+Test with non-critical data before relying on it for important backups.
